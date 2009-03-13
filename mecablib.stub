@@ -20,8 +20,6 @@
 
 (define-type <mecab-t> "mecab_t*" "mecab_t"
   "SCM_MECABP" "unwrap_mecab_t" "wrap_mecab_t")
-;(define-type <mecab_node_t> "mecab_node_t*" "mecab_node_t"
-;  "SCM_MECABP" "unwrap_mecab_node_t" "wrap_mecab_node_t")
 (define-type <const-mecab-node-t> "const mecab_node_t*" "const mecab_node_t"
   "SCM_MECAB_NODEP" "unwrap_mecab_node_t" "wrap_mecab_node_t")
 (define-type <const-mecab-dictionary-info-t> "const mecab_dictionary_info_t*" "const mecab_dictionary_info_t"

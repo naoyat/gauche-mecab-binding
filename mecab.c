@@ -11,7 +11,6 @@
 #include <mecab.h>
 #include "mecab.h"
 
-//ScmClass *Scm_MeCabClass;
 // mecab_t
 mecab_t* unwrap_mecab_t(ScmObj obj)
 {
@@ -93,24 +92,6 @@ int mecab_call_int_func(int_func_with_args fn, ScmObj args)
 }
 
 /*
-static void MeCab_print(ScmObj obj, ScmPort *out, ScmWriteContext *ctx)
-{
-  ScmMeCab *m = SCM_MECAB(obj);//SCM_MECAB_UNBOX(obj);
-  //  const char *queue_name = q->getName().c_str();
-  Scm_Printf(out, "#<<mecab> 0x%x>", m->m);
-}
-
-static void MeCab_cleanup(ScmObj obj)
-{
-  ScmMeCab *m = SCM_MECAB(obj);
-  if (m->m) {
-    mecab_destroy(m->m);
-    m->m = NULL;
-  }
-}
-*/
-
-/*
  * Module initialization function.
  */
 extern void Scm_Init_mecablib(ScmModule*);
@@ -124,13 +105,7 @@ void Scm_Init_mecab(void)
 
     /* Create the module if it doesn't exist yet. */
     mod = SCM_MODULE(SCM_FIND_MODULE("mecab", TRUE));
-    /*
-    Scm_MeCabClass =
-        Scm_MakeForeignPointerClass(mod, "<mecab>",
-                                    MeCab_print,
-                                    MeCab_cleanup,
-                                    SCM_FOREIGN_POINTER_KEEP_IDENTITY|SCM_FOREIGN_POINTER_MAP_NULL);
-    */
+
     /* Register stub-generated procedures */
     Scm_Init_mecablib(mod);
 }
