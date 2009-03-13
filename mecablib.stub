@@ -1,0 +1,352 @@
+;;;
+;;; mecablib.stub
+;;;
+;;;  2009.3.13 by naoya_t
+;;;
+
+"
+#include <gauche.h>
+#include <gauche/extend.h>
+
+#include <mecab.h>
+#include \"mecab.h\"
+"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-cclass <mecab> "ScmMeCab*" "Scm_MeCabClass" () ())
+(define-cclass <mecab-node> "ScmMeCabNode*" "Scm_MeCabNodeClass" () ())
+(define-cclass <mecab-dictionary-info> "ScmMeCabDictionaryInfo*" "Scm_MeCabDictionaryInfoClass" () ())
+
+(define-type <mecab-t> "mecab_t*" "mecab_t"
+  "SCM_MECABP" "unwrap_mecab_t" "wrap_mecab_t")
+;(define-type <mecab_node_t> "mecab_node_t*" "mecab_node_t"
+;  "SCM_MECABP" "unwrap_mecab_node_t" "wrap_mecab_node_t")
+(define-type <const-mecab-node-t> "const mecab_node_t*" "const mecab_node_t"
+  "SCM_MECAB_NODEP" "unwrap_mecab_node_t" "wrap_mecab_node_t")
+(define-type <const-mecab-dictionary-info-t> "const mecab_dictionary_info_t*" "const mecab_dictionary_info_t"
+  "SCM_MECAB_DICTIONARY_INFOP" "unwrap_mecab_dictionary_info_t" "wrap_mecab_dictionary_info_t")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; mecab-do
+(define-cproc mecab-do (&rest args)
+  (expr <int> "mecab_call_int_func(&mecab_do,args)"))
+
+;;mecab_t *mecab_new (int argc, char **argv)
+;;    mecab のインスタンスを生成します.
+;;    引数には, C 言語の, main 関数で使用される argc, argv スタイルの引数を与えます.
+;;    この引数は, mecab コマンドと同じ方法で処理されます.
+;;    成功すれば, mecab_t 型のポインタが返ってきます. このポインタを通して解析 を行います. 失敗すれば NULL が返ってきます.
+(define-cproc mecab-new (&rest args)
+  (expr <mecab-t> "mecab_call_mecab_func(&mecab_new,args)"))
+
+;;mecab_t *mecab_new2 (const char *arg)
+;;    mecab のインスタンスを生成します.
+;;    引数には, 一つの文字列として表現したパラメータを与えます.
+;;    成功すれば, mecab_t 型のポインタが返ってきます. このポインタを通して解析を行います.
+(define-cproc mecab-new2 (arg::<const-cstring>)
+  (call <mecab-t> "mecab_new2"))
+
+;;const char *mecab_version()
+;;    mecab の version を文字列として取得します.
+(define-cproc mecab-version ()
+  (call <const-cstring> "mecab_version"))
+
+;;const char *mecab_strerror (mecab_t* m)
+;;    エラーの内容を文字列として取得します. mecab_sparse_tostr 等で, NULL が返ってきた場合に, mecab_strerror を呼ぶことで, エラーの内容を取得できます. 
+;;    mecab_new,mecab_new2 のエラーは, m を NULL と指定してください. 
+(define-cproc mecab-strerror (m)
+  (expr <const-cstring>
+		"mecab_strerror( SCM_MECABP(m)? unwrap_mecab_t(m) : NULL )"))
+; (call <const-cstring> "mecab_strerror"))
+
+;;const char *mecab_sparse_tostr (mecab_t *m, const char *str)
+;;    解析を行います. 引数には, mecab_new で得られた mecab_t 型のポインタと,
+;;    解析したい文を char 型のポインタ文字列として与えます.
+;;    成功すれば, 解析後の結果が char 型のポインタとして返り, 失敗すれば, NULL が返ってきます
+;;    戻り値のポインタが指すメモリ領域は, 呼び出し側で管理する必要はありませんが,
+;;    mecab_sparse_tostr を呼ぶ度に上書きされます.
+;;    また, mecab_destroy を呼ぶと解放されます. 
+(define-cproc mecab-sparse-tostr (mecab::<mecab-t> str::<const-cstring>)
+  (call <const-cstring> "mecab_sparse_tostr"))
+
+;;const char *mecab_sparse_tostr2 (mecab_t *m, const char *str, size_t len)
+;;    mecab_sparse_tostr とほぼ同じですが, len にて, 解析する文の長さを指定できます. 
+(define-cproc mecab-sparse-tostr2 (mecab::<mecab-t> str::<const-cstring> len::<uint>)
+  (call <const-cstring> "mecab_sparse_tostr2"))
+
+;;char *mecab_sparse_tostr3 (mecab_t *m, const char *istr,size_t ilen char *ostr, size_t olen)
+;;    mecab_sparse_tostr2 に加え, 出力用のバッファ領域 (ostr), 及びその長さ (olen) を指定できます. ostr の領域の管理は, 呼び出し側が行います. 成功すれば, 解析後の
+;;    結果が char 型のポインタとして返ってきます. これは, ostr と同じになります. もし, 解析結果の長さが olen 以上になった場合は, 解析失敗とみなし, NULL を返します. 
+;;(define-cproc mecab-sparse-tostr3 (mecab::<mecab-t> str::<const-cstring> len::<uint> ostr::<const-cstring> olen::<uint>)
+;;  (call <const-cstring> "mecab_sparse_tostr3"))
+
+;;const char *mecab_nbest_sparse_tostr  (mecab_t *m, size_t N, const char *str)
+;;    mecab_sparse_tostr () の N-Best 解出力 version です. N にて解析結果の個数を指定します. また, N-Best の機能を使う場合は, 必ず mecab_new にて -l 1 オプションを指定する必要があります. 
+(define-cproc mecab-nbest-sparse-tostr (mecab::<mecab-t> n::<uint> str::<const-cstring>)
+  (call <const-cstring> "mecab_nbest_sparse_tostr"))
+
+;;const char *mecab_nbest_sparse_tostr2 (mecab_t *m, size_t N, const char *str, size_t len)
+;;    mecab_sparse_tostr2 () の N-Best 解出力 version です. N にて解析結果の個数を指定します. 
+(define-cproc mecab-nbest-sparse-tostr2 (mecab::<mecab-t> n::<uint> str::<const-cstring> len::<uint>)
+  (call <const-cstring> "mecab_nbest_sparse_tostr2"))
+
+;;char *mecab_nbest_sparse_tostr3 (mecab_t *m, size_t N, const char *str, size_t len, char *ostr, size_t olen)
+;;    mecab_sparse_tostr3 () の N-Best 解出力 version です. N にて解析結果の個数を指定します.
+;;(define-cproc mecab-nbest-sparse-tostr3 (mecab::<mecab-t> n::<uint> str::<const-cstring> len::<uint> ostr::<const-cstring> olen::<uint>)
+;;  (call <const-cstring> "mecab_nbest_sparse_tostr3"))
+
+;;int mecab_nbest_init (mecab_t* m, const char* str);
+;;    解析結果を, 確からしいものから順番に取得する場合にこの関数で初期化を行います. 解析したい文を str に指定します. 初期化に成功すると 1 を, 失敗すると 0 を返します. 失敗の原因は, mecab_strerror で取得できます. 
+(define-cproc mecab-nbest-init (mecab::<mecab-t> str::<const-cstring>)
+  (call <int> "mecab_nbest_init"))
+
+;;int mecab_nbest_init2 (mecab_t* m, const char* str, len);
+;;    mecab_nbest_init () とほぼ同じですが, len にて文の長さを指定できます.
+(define-cproc mecab-nbest-init2 (mecab::<mecab-t> str::<const-cstring> len::<uint>)
+  (call <int> "mecab_nbest_init2"))
+
+;;const char *mecab_nbest_next_tostr (mecab_t* m)
+;;    mecab_nbest_init() の後, この関数を順次呼ぶことで, 確からしい解析結果 を, 順番に取得できます. 失敗すると (これ以上の解が存在しない場合) NULL を返します. 失
+;;    敗の原因は, mecab_strerror で取得できます. 
+;; [Gauche] NULLの場合に#fを返すようにしてある
+(define-cproc mecab-nbest-next-tostr (mecab::<mecab-t>)
+" const char *s = mecab_nbest_next_tostr(mecab);
+  return s ? SCM_MAKE_STR_COPYING(s) : SCM_FALSE;")
+;  (call <const-cstring> "mecab_nbest_next_tostr"))
+
+;;const mecab_node_t *mecab_next_tonode (mecab_t* m)
+;;    mecab_next_tostr とほぼ同じですが,文字列ではなく mecab_node_t 型の形態素情報を返します.
+;; [Gauche] NULLの場合に#fを返すようにしてある
+(define-cproc mecab-nbest-next-tonode (mecab::<mecab-t>)
+" const mecab_node_t *node = mecab_nbest_next_tonode(mecab);
+  return node ? wrap_mecab_node_t(node) : SCM_FALSE;")
+;  (call <const-mecab-node-t> "mecab_nbest_next_tonode"))
+
+;;char *mecab_nbest_next_tostr2 (mecab_t *m , char *ostr, size_t olen)
+;;    mecab_nbest_tostr() とほぼ同じですが, ostr, olen にて出力用のバッファを 指定できます. 失敗すると (これ以上の解が存在しない場合) NULL を返します. また, 出力
+;;    バッファが溢れた場合も NULL を返します. 失敗の原因は, mecab_strerror で取得できます.
+;;(define-cproc mecab-nbest-next-tostr2 (mecab::<mecab-t> ostr::<const-cstring> olen::<uint>)
+;;  (call <const-cstring> "mecab_nbest_next_tostr2"))
+
+;;void mecab_destroy(mecab_t *m)
+;;    mecab_t 型のポインタを解放します.
+;(define-cproc mecab-destroy (m::<mecab-t>)
+;  (call <void> "mecab_destroy"))
+(define-cproc mecab-destroy (m::<mecab>)
+"  if (m->m) { mecab_destroy(m->m); m->m = NULL; }
+   SCM_RETURN(SCM_UNDEFINED); ")
+
+(define-cproc mecab-destroyed? (m::<mecab-t>)
+"  SCM_RETURN(SCM_MAKE_BOOL(m == NULL)); ")
+
+;;;;;;;
+;;const mecab_node_t *mecab_sparse_tonode (mecab_t *m, const char *str)
+;;    解析を行います. 引数には, mecab_new で得られた mecab_t 型のポインタと,
+;;    解析したい文を char 型のポインタ文字列として与えます.
+;;    成功すれば, 文頭の形態素(mecab_node_t型)へのポインタが返り, 失敗すれば, NULLが返ってきます.
+;;    mecab_node_t は双方向リストになっているため next, prev を順にたどる事で全形態素を列挙することができます.
+;;    戻り値のポインタが指すメモリ領域は, 呼び出し側で管理する必要はありませんが,mecab_sparse_tonode を呼ぶ度に上書きされます.
+;;    また, mecab_destroy を呼ぶと解放されます.
+(define-cproc mecab-sparse-tonode (mecab::<mecab-t> str::<const-cstring>)
+  (call <const-mecab-node-t> "mecab_sparse_tonode"))
+
+;;const mecab_node_t *mecab_sparse_tonode2 (mecab_t *m, const char *str, size_t len)
+;;    mecab_sparse_tonode とほぼ同じですが, len にて, 解析する文の長さを指定できます. 
+(define-cproc mecab-sparse-tonode2 (mecab::<mecab-t> str::<const-cstring> siz::<uint>)
+  (call <const-mecab-node-t> "mecab_sparse_tonode2"))
+
+
+;;;;;;
+;;const mecab_dictionary_info_t *mecab_dictionary_info(mecab_t *m)
+;;    辞書情報を取得します. 引数には, mecab_new で得られた mecab_t 型のポインタを与えます.
+;;    mecab_dictoinary_info_t は単方向リストになっています.
+;;    複数の辞書を使っている場合は, next を辿っていくことで全ての辞書情報にアクセスできます.
+;;    mecab_dictionary_info() が返す領域は mecab が管理していますので解放する必要はありません.
+(define-cproc mecab-dictionary-info (mecab::<mecab-t>)
+  (call <const-mecab-dictionary-info-t> "mecab_dictionary_info"))
+
+;;int mecab_get_partial(mecab_t *m)
+;;    部分解析の現在のモードを取得します。(0: off, 1:on)
+(define-cproc mecab-get-partial (mecab::<mecab-t>)
+  (call <int> "mecab_get_partial"))
+;;void mecab_set_partial(mecab_t *m)
+;;    部分解析の現在のモードを設定します。(0: off, 1:on)
+(define-cproc mecab-set-partial (mecab::<mecab-t> partial::<int>)
+  (call <void> "mecab_set_partial"))
+
+;;float mecab_get_theta(mecab_t *m)
+;;    ソフト分かち書きの温度パラメータを取得します。
+(define-cproc mecab-get-theta (mecab::<mecab-t>)
+  (call <float> "mecab_get_theta"))
+;;void mecab_set_theta(mecab_t *m, float theta)
+;;    ソフト分かち書きの温度パラメータを設定します。
+(define-cproc mecab-set-theta (mecab::<mecab-t> theta::<float>)
+  (call <void> "mecab_set_theta"))
+
+;;int mecab_get_lattice_level(mecab_t *m)
+;;    ラティスレベル(どの程度のラティス情報を解析時に構築するか)を取得します。
+;;        * 0: 最適解のみが出力可能なレベル (デフォルト, 高速)
+;;        * 1: N-best 解が出力可能なレベル (中速)
+;;        * 2: ソフトわかち書きが可能なレベル (低速) 
+(define-cproc mecab-get-lattice-level (mecab::<mecab-t>)
+  (call <int> "mecab_get_lattice_level"))
+;;void mecab_set_lattice_level(mecab_t *m, int lattice_level)
+;;    ラティスレベルを設定します。
+(define-cproc mecab-set-lattice-level (mecab::<mecab-t> level::<int>)
+  (call <void> "mecab_set_lattice_level"))
+
+;;int mecab_get_all_morphs(mecab_t *m)
+;;    出力モードを取得します。(0: ベスト解のみ, 1:全出力) 
+(define-cproc mecab-get-all-morphs (mecab::<mecab-t>)
+  (call <int> "mecab_get_all_morphs"))
+;;void mecab_set_all_morphs(mecab_t *m, int all_mophrs)
+;;    出力モードを設定します。(0: ベスト解のみ, 1:全出力)
+(define-cproc mecab-set-all-morphs (mecab::<mecab-t> all_morphs::<int>)
+  (call <void> "mecab_set_all_morphs"))
+
+;;;;;;;;;;;
+(define-cproc mecab-format-node (mecab::<mecab-t> node::<const-mecab-node-t>)
+  (call <const-cstring> "mecab_format_node"))
+
+(define-cproc mecab-dict-index (&rest args)
+  (expr <int> "mecab_call_int_func(&mecab_dict_index,args)"))
+(define-cproc mecab-dict-gen (&rest args)
+  (expr <int> "mecab_call_int_func(&mecab_dict_gen,args)"))
+(define-cproc mecab-cost-train (&rest args)
+  (expr <int> "mecab_call_int_func(&mecab_cost_train,args)"))
+(define-cproc mecab-system-eval (&rest args)
+  (expr <int> "mecab_call_int_func(&mecab_system_eval,args)"))
+(define-cproc mecab-test-gen (&rest args)
+  (expr <int> "mecab_call_int_func(&mecab_test_gen,args)"))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; mecab_node_t
+;;
+;; 一つ前の形態素へのポインタ
+(define-cproc mecab-node-prev (node::<const-mecab-node-t>)
+"  const mecab_node_t *prev_node = node->prev;
+  return prev_node ? wrap_mecab_node_t(prev_node) : SCM_FALSE;")
+;  return node ? node : SCM_FALSE;")
+;  (expr <const-mecab-node-t> "node->prev"))
+;; 一つ先の形態素へのポインタ
+(define-cproc mecab-node-next (node::<const-mecab-node-t>)
+"  const mecab_node_t *next_node = node->next;
+  return next_node ? wrap_mecab_node_t(next_node) : SCM_FALSE;")
+;  return node ? node : SCM_FALSE;")
+;  (expr <const-mecab-node-t> "node->next"))
+;; 同じ位置で終わる形態素へのポインタ
+(define-cproc mecab-node-enext (node::<const-mecab-node-t>)
+"  const mecab_node_t *enext_node = node->enext;
+  return enext_node ? wrap_mecab_node_t(enext_node) : SCM_FALSE;")
+;  (expr <const-mecab-node-t> "node->enext"))
+;; 同じ開始位置で始まる形態素へのポインタ
+(define-cproc mecab-node-bnext (node::<const-mecab-node-t>)
+"  const mecab_node_t *bnext_node = node->bnext;
+  return bnext_node ? wrap_mecab_node_t(bnext_node) : SCM_FALSE;")
+;  (expr <const-mecab-node-t> "node->bnext"))
+;; 形態素の文字列情報
+;; NULL terminateされていません. 文字列として取り出すには
+;; strncpy(buf, node->feature, node->length) とする必要があります
+(define-cproc mecab-node-surface (node::<const-mecab-node-t>)
+;  (expr <const-cstring> "(const char *)node->surface"))
+  "  char buf[node->length + 1];
+     memcpy(buf, node->surface, node->length);
+     buf[node->length] = 0;
+     return SCM_MAKE_STR_COPYING(buf);");
+;     return Scm_MakeString( (const char *)node->surface,
+;		  3, 3/*node->length*/,
+;          SCM_STRING_COPYING);")
+;; CSV で表記された素性情報
+(define-cproc mecab-node-feature (node::<const-mecab-node-t>)
+  (expr <const-cstring> "(const char *)node->feature"))
+;; unsigned int length; 形態素の長さ
+(define-cproc mecab-node-length (node::<const-mecab-node-t>)
+  (expr <uint> "node->length"))
+;; unsigned int rlength; 形態素の長さ(先頭のスペースを含む)
+(define-cproc mecab-node-rlength (node::<const-mecab-node-t>)
+  (expr <uint> "node->rlength"))
+;; unsigned int id; 形態素に付与される ユニークID
+(define-cproc mecab-node-id (node::<const-mecab-node-t>)
+  (expr <uint> "node->id"))
+;; unsigned short rcAttr;      // 右文脈 id
+(define-cproc mecab-node-rc-attr (node::<const-mecab-node-t>)
+  (expr <uint> "node->rcAttr"))
+;; unsigned short lcAttr;      // 左文脈 id
+(define-cproc mecab-node-lc-attr (node::<const-mecab-node-t>)
+  (expr <uint> "node->lcAttr"))
+;; unsigned short posid;       // 形態素 ID
+(define-cproc mecab-node-posid (node::<const-mecab-node-t>)
+  (expr <uint> "node->posid"))
+;; unsigned char  char_type;   // 文字種情報
+(define-cproc mecab-node-char-type (node::<const-mecab-node-t>)
+  (expr <uint> "node->char_type"))
+;; unsigned char  stat;        // 形態素の種類: 以下のマクロの値
+;;                             // #define MECAB_NOR_NODE  0
+;;                             // #define MECAB_UNK_NODE  1
+;;                             // #define MECAB_BOS_NODE  2
+;;                             // #define MECAB_EOS_NODE  3
+(define-cproc mecab-node-stat (node::<const-mecab-node-t>)
+  "  const char *syms[4] = { \"mecab-nor-node\",\"mecab-unk-node\",\"mecab-bos-node\",\"mecab-eos-node\" };
+     return Scm_Intern( (ScmString *)SCM_MAKE_STR_COPYING(syms[node->stat]) );")
+;; unsigned char  isbest;      // ベスト解の場合 1, それ以外 0
+(define-cproc mecab-node-best? (node::<const-mecab-node-t>)
+  (expr <boolean> "node->isbest"))
+;; float alpha;       // forward backward の foward log 確率
+(define-cproc mecab-node-alpha (node::<const-mecab-node-t>)
+  (expr <float> "node->alpha"))
+;; float beta;        // forward backward の backward log 確率
+(define-cproc mecab-node-beta (node::<const-mecab-node-t>)
+  (expr <float> "node->beta"))
+;; float prob;        // 周辺確率
+;;                              // alpha, beta, prob は -l 2 オプションを指定した時に定義されます
+(define-cproc mecab-node-prob (node::<const-mecab-node-t>)
+  (expr <float> "node->prob"))
+;; short wcost;       // 単語生起コスト
+(define-cproc mecab-node-wcost (node::<const-mecab-node-t>)
+  (expr <int> "node->wcost"))
+;; long cost;        // 累積コスト
+(define-cproc mecab-node-cost (node::<const-mecab-node-t>)
+  (expr <int> "node->cost"))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; mecab_dictionary_info_t
+;;
+										; #define MECAB_USR_DIC   1
+										; #define MECAB_SYS_DIC   0
+										; #define MECAB_UNK_DIC   2
+;; const char *filename;  // 辞書のファイル名
+(define-cproc mecab-dictionary-info-filename (dinfo::<const-mecab-dictionary-info-t>)
+  (expr <const-cstring> "dinfo->filename"))
+;; const char *charset;   // 辞書の文字コード
+(define-cproc mecab-dictionary-info-charset (dinfo::<const-mecab-dictionary-info-t>)
+  (expr <const-cstring> "dinfo->charset"))
+;; unsigned int size;      // 単語数
+(define-cproc mecab-dictionary-info-size (dinfo::<const-mecab-dictionary-info-t>)
+  (expr <uint> "dinfo->size"))
+;; int type;      // 辞書のタイプ
+;;                                             // MECAB_(USR|SYS|UNK)_DIC のいずれか
+(define-cproc mecab-dictionary-info-type (dinfo::<const-mecab-dictionary-info-t>)
+  "  const char *syms[3] = { \"mecab-sys-dic\",\"mecab-usr-dic\",\"mecab-unk-dic\" };
+     return Scm_Intern( (ScmString *)SCM_MAKE_STR_COPYING(syms[dinfo->type]) );")
+;; unsigned int lsize;     // 左文脈 ID のサイズ
+(define-cproc mecab-dictionary-info-lsize (dinfo::<const-mecab-dictionary-info-t>)
+  (expr <uint> "dinfo->lsize"))
+;; unsigned int rsize;     // 右文脈 ID のサイズ
+(define-cproc mecab-dictionary-info-rsize (dinfo::<const-mecab-dictionary-info-t>)
+  (expr <uint> "dinfo->rsize"))
+;; unsigned short version;   // バージョン
+(define-cproc mecab-dictionary-info-version (dinfo::<const-mecab-dictionary-info-t>)
+  (expr <uint> "dinfo->version"))
+;; struct mecab_dictionary_info_t *next;      // 次の辞書へのポインタ
+(define-cproc mecab-dictionary-info-next (dinfo::<const-mecab-dictionary-info-t>)
+  (expr <const-mecab-dictionary-info-t> "dinfo->next"))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Local variables:
+;; mode: scheme
+;; end:
