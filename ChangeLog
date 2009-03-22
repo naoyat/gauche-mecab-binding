@@ -1,6 +1,6 @@
 2009-03-23  naoya_t  <naoya.t@aqua.plala.or.jp>
 
-    * Merged naoya_t's MeCab binding.  Supports almost all of MeCab APIs and Tagger class.
+	* Merged naoya_t's MeCab binding.  Supports almost all of MeCab APIs and Tagger class.
 
 2009-03-01  Shiro Kawai  <shiro@acm.org>
 
