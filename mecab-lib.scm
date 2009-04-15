@@ -30,16 +30,18 @@
 ;;;   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 ;;;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ;;;
-;;;  $Id: mecab-lib.scm,v 1.1 2009/03/02 03:52:45 shirok Exp $
+;;;  $Id: mecab-lib.scm,v 1.3 2009/03/25 09:42:14 naoya_t Exp $
 ;;;
 
 (define-module text.mecab
   (use srfi-1)
+  (use srfi-13)
   (use gauche.charconv)
   (export <mecab> <mecab-node> <mecab-dictionary-info>
           mecab? mecab-node? mecab-dictionary-info?
           mecab-do mecab-new mecab-new2
           mecab-version mecab-strerror mecab-destroy mecab-destroyed?
+          mecab mecab-options
 
           mecab-tagger ; message passing
           <mecab-tagger> mecab-make-tagger ; class
@@ -78,13 +80,14 @@
 
 ;; This should be configurable, since mecab can be compiled to use utf-8.
 (define-constant MECAB_ENCODING 'euc-jp)
-;(define-constant MECAB_ENCODING 'utf-8)
 
-(define (cv-send str) str)
+;; We need cv-send and cv-recv if MeCab is configured with --enable-utf8-only option.
+;(define (cv-send str)
 ;  (ces-convert str (gauche-character-encoding) MECAB_ENCODING))
-
-(define (cv-recv str) str)
+;(define (cv-recv str)
 ;  (and str (ces-convert str MECAB_ENCODING)))
+(define (cv-send str) str)
+(define (cv-recv str) str)
 
 (define (mecab-do args)
   (unless (every string? args)
@@ -94,38 +97,14 @@
 (define (mecab-new args)
   (unless (every string? args)
     (error "mecab-new: list of strings required, but got:" args))
-  (%mecab-new (map cv-send args)))
+  (%mecab-new (map cv-send args) (mecab-parse-options args)))
 
 (define (mecab-new2 str)
-  (%mecab-new2 (cv-send str)))
+  (%mecab-new2 (cv-send str) (mecab-parse-options str)))
 
 (define (mecab-strerror m)
-  (cv-recv (if m (%mecab-strerror m)
-               (%mecab-strerror-with-null))))
-
-(define (mecab-get-partial m)
-  (%mecab-get-partial m))
-
-(define (mecab-set-partial m partial)
-  (%mecab-set-partial m partial))
-
-(define (mecab-get-theta m)
-  (%mecab-get-theta m))
-
-(define (mecab-set-theta m theta)
-  (%mecab-set-theta m theta))
-
-(define (mecab-get-lattice-level m)
-  (%mecab-get-lattice-level m))
-
-(define (mecab-set-lattice-level m llevel)
-  (%mecab-set-lattice-level m llevel))
-
-(define (mecab-get-all-morphs m)
-  (%mecab-get-all-morphs m))
-
-(define (mecab-set-all-morphs m morphs)
- (%mecab-set-all-morphs m morphs))
+; (cv-recv (%mecab-strerror m))) ;; m can be #f
+  (cv-recv (if m (%mecab-strerror m) (%mecab-strerror-with-null))))
 
 (define (mecab-sparse-tostr m str)
   (cv-recv (%mecab-sparse-tostr m (cv-send str))))
@@ -154,14 +133,8 @@
 (define (mecab-nbest-next-tostr m)
   (cv-recv (%mecab-nbest-next-tostr m)))
 
-(define (mecab-nbest-next-tonode m)
-  (%mecab-nbest-next-tonode m))
-
 (define (mecab-format-node m node)
-  (%mecab-format-node m node))
-
-(define (mecab-dictionary-info m)
-  (%mecab-dictionary-info m))
+  (cv-recv (%mecab-format-node m node)))
 
 (define (mecab-dict-index args)
   (unless (every string? args)
@@ -188,7 +161,7 @@
     (error "mecab-test-gen: list of strings required, but got:" args))
   (%mecab-test-gen (map cv-send args)))
 
-;;
+;; mecab_node_t
 (define (mecab-node-surface n)
   (cv-recv (%mecab-node-surface n)))
 
@@ -199,10 +172,12 @@
   (vector-ref #(mecab-nor-node mecab-unk-node mecab-bos-node mecab-eos-node)
               (%mecab-node-stat n)))
 
+;; mecab_dictionary_info_t
 (define (mecab-dictionary-info-type dinfo)
   (vector-ref #(mecab-sys-dic mecab-usr-dic mecab-unk-dic)
               (%mecab-dictionary-info-type dinfo)))
 
+;;
 (inline-stub
  "#include <mecab.h>"
 
@@ -210,16 +185,17 @@
  "typedef struct ScmMeCabRec {
    SCM_HEADER;
    mecab_t *m; /* NULL if closed */
+   ScmObj   options;
  } ScmMeCab;
 
  typedef struct ScmMeCabNodeRec {
    SCM_HEADER;
-   mecab_node_t *node;
+   const mecab_node_t *node;
  } ScmMeCabNode;
 
  typedef struct ScmMeCabDictionaryInfoRec {
    SCM_HEADER;
-   mecab_dictionary_info_t *dic_info;
+   const mecab_dictionary_info_t *dic_info;
  } ScmMeCabDictionaryInfo;"
 
  (define-cclass <mecab> :private ScmMeCab* "Scm_MeCabClass"
@@ -239,28 +215,29 @@
    (unless (== (-> m m) NULL)
      (mecab-destroy (-> m m))
      (set! (-> m m) NULL)))
-
+ 
  (define-cfn mecab-finalize (obj data::void*) ::void :static
    (mecab-cleanup (SCM_MECAB obj)))
 
- (define-cfn make-mecab (m::mecab_t*) :static
+ (define-cfn make-mecab (m::mecab_t* options::ScmObj) :static
    (when (== m NULL) (mecab-strerror NULL))
    (let* ([obj::ScmMeCab* (SCM_NEW ScmMeCab)])
      (SCM_SET_CLASS obj (& Scm_MeCabClass))
      (set! (-> obj m) m)
+     (set! (-> obj options) options)
      (Scm_RegisterFinalizer (SCM_OBJ obj) mecab-finalize NULL)
      (return (SCM_OBJ obj))))
 
- (define-cfn make-mecab-node (n::mecab_node_t*) :static
-;   (when (== node NULL) (mecab-strerror NULL))
+ (define-cfn make-mecab-node (n::"const mecab_node_t*") :static
+   ;; returns #f when n==NULL ... for convenience of mecab_nbest_next_*
    (if (== n NULL) (return SCM_FALSE)
        (let* ([obj::ScmMeCabNode* (SCM_NEW ScmMeCabNode)])
          (SCM_SET_CLASS obj (& Scm_MeCabNodeClass))
          (set! (-> obj node) n)
          (return (SCM_OBJ obj)))))
 
- (define-cfn make-mecab-dictionary-info (dic_info::mecab_dictionary_info_t*) :static
-;   (when (== dic_info NULL) (mecab-strerror NULL))
+ (define-cfn make-mecab-dictionary-info (dic_info::"const mecab_dictionary_info_t*") :static
+   ;; returns #f when dic_info==NULL ... for convenience of mecab-dictionary-info-next
    (if (== dic_info NULL) (return SCM_FALSE)
        (let* ([obj::ScmMeCabDictionaryInfo* (SCM_NEW ScmMeCabDictionaryInfo)])
          (SCM_SET_CLASS obj (& Scm_MeCabDictionaryInfoClass))
@@ -277,13 +254,13 @@
           [argv::char** (Scm_ListToCStringArray args TRUE NULL)])
      (result (mecab-do argc argv))))
 
- (define-cproc %mecab-new (args::<list>)
+ (define-cproc %mecab-new (args::<list> options)
    (let* ([argc::int (Scm_Length args)]
           [argv::char** (Scm_ListToCStringArray args TRUE NULL)])
-     (result (make-mecab (mecab-new argc argv)))))
- 
- (define-cproc %mecab-new2 (arg::<string>)
-   (result (make-mecab (mecab-new2 (Scm_GetString arg)))))
+     (result (make-mecab (mecab-new argc argv) options))))
+
+ (define-cproc %mecab-new2 (arg::<string> options)
+   (result (make-mecab (mecab-new2 (Scm_GetString arg)) options)))
 
  (define-cproc mecab-version () ::<const-cstring> mecab-version)
 
@@ -293,10 +270,38 @@
  (define-cproc mecab-destroyed? (m::<mecab>) ::<boolean>
    (result (== (-> m m) NULL)))
 
+ (define-cproc mecab-options (m::<mecab>)
+   (result (-> m options)))
+
  (define-cproc %mecab-strerror (m::<mecab>) ::<const-cstring>
    (result (mecab-strerror (-> m m))))
+
  (define-cproc %mecab-strerror-with-null () ::<const-cstring>
    (result (mecab-strerror NULL)))
+
+ (define-cproc mecab-get-partial (m::<mecab>) ::<int>
+   (result (mecab-get-partial (-> m m))))
+
+ (define-cproc mecab-set-partial (m::<mecab> partial::<int>) ::<void>
+   (mecab-set-partial (-> m m) partial))
+
+ (define-cproc mecab-get-theta (m::<mecab>) ::<float>
+   (result (mecab-get-theta (-> m m))))
+
+ (define-cproc mecab-set-theta (m::<mecab> theta::<float>) ::<void>
+   (mecab-set-theta (-> m m) theta))
+
+ (define-cproc mecab-get-lattice-level (m::<mecab>) ::<int>
+   (result (mecab-get-lattice-level (-> m m))))
+
+ (define-cproc mecab-set-lattice-level (m::<mecab> level::<int>) ::<void>
+   (mecab-set-lattice-level (-> m m) level))
+
+ (define-cproc mecab-get-all-morphs (m::<mecab>) ::<int>
+   (result (mecab-get-all-morphs (-> m m))))
+
+ (define-cproc mecab-set-all-morphs (m::<mecab> all_morphs::<int>) ::<void>
+   (mecab-set-all-morphs (-> m m) all_morphs))
 
  (define-cproc %mecab-sparse-tostr (m::<mecab> str::<const-cstring>)
    ::<const-cstring>?
@@ -314,23 +319,19 @@
    ::<const-cstring>?
    (result (mecab-nbest-sparse-tostr2 (-> m m) n str len)))
 
- (define-cproc %mecab-nbest-init (m::<mecab> str::<const-cstring>)
-   ::<int>
+ (define-cproc %mecab-nbest-init (m::<mecab> str::<const-cstring>) ::<int>
    (result (mecab-nbest-init (-> m m) str)))
 
- (define-cproc %mecab-nbest-init2 (m::<mecab> str::<const-cstring> len::<uint>)
-   ::<int>
+ (define-cproc %mecab-nbest-init2 (m::<mecab> str::<const-cstring> len::<uint>) ::<int>
    (result (mecab-nbest-init2 (-> m m) str len)))
 
- (define-cproc %mecab-nbest-next-tostr (m::<mecab>)
+ (define-cproc %mecab-nbest-next-tostr (m::<mecab>) ;; returns null at the end
 ;   (result (mecab-nbest-next-tostr (-> m m))))
 " const char *s = mecab_nbest_next_tostr(m->m);
   return s ? SCM_MAKE_STR_COPYING(s) : SCM_FALSE;")
 
- (define-cproc %mecab-nbest-next-tonode (m::<mecab>)
+ (define-cproc mecab-nbest-next-tonode (m::<mecab>) ;; returns null at the end
    (result (make-mecab-node (mecab-nbest-next-tonode (-> m m)))))
-;" mecab_node_t *node = mecab_nbest_next_tonode(m->m);
-;  return node ? make_mecab_node(node) : SCM_FALSE;")
 
  (define-cproc %mecab-sparse-tonode (m::<mecab> str::<const-cstring>)
    (result (make-mecab-node (mecab-sparse-tonode (-> m m) str))))
@@ -338,43 +339,10 @@
  (define-cproc %mecab-sparse-tonode2 (m::<mecab> str::<const-cstring> siz::<uint>)
    (result (make-mecab-node (mecab-sparse-tonode2 (-> m m) str siz))))
 
- (define-cproc %mecab-dictionary-info (m::<mecab>)
+ (define-cproc mecab-dictionary-info (m::<mecab>)
    (result (make-mecab-dictionary-info (mecab-dictionary-info (-> m m)))))
 
- (define-cproc %mecab-get-partial (m::<mecab>)
-   ::<int>
-   (result (mecab-get-partial (-> m m))))
-
- (define-cproc %mecab-set-partial (m::<mecab> partial::<int>)
-   ::<void>
-   (mecab-set-partial (-> m m) partial))
-
- (define-cproc %mecab-get-theta (m::<mecab>)
-   ::<float>
-   (result (mecab-get-theta (-> m m))))
-
- (define-cproc %mecab-set-theta (m::<mecab> theta::<float>)
-   ::<void>
-   (mecab-set-theta (-> m m) theta))
-
- (define-cproc %mecab-get-lattice-level (m::<mecab>)
-   ::<int>
-   (result (mecab-get-lattice-level (-> m m))))
-
- (define-cproc %mecab-set-lattice-level (m::<mecab> level::<int>)
-   ::<void>
-   (mecab-set-lattice-level (-> m m) level))
- 
- (define-cproc %mecab-get-all-morphs (m::<mecab>)
-   ::<int>
-   (result (mecab-get-all-morphs (-> m m))))
-
- (define-cproc %mecab-set-all-morphs (m::<mecab> all_morphs::<int>)
-   ::<void>
-   (mecab-set-all-morphs (-> m m) all_morphs))
-
- (define-cproc %mecab-format-node (m::<mecab> n::<mecab-node>)
-   ::<const-cstring>?
+ (define-cproc %mecab-format-node (m::<mecab> n::<mecab-node>) ::<const-cstring>?
    (result (mecab-format-node (-> m m) (-> n node))))
 
  (define-cproc %mecab-dict-index (args::<list>) ::<int>
@@ -406,88 +374,76 @@
 ;; mecab_node_t
 ;;
  (define-cproc mecab-node-prev (n::<mecab-node>)
-"  const mecab_node_t *prev_node = n->node->prev;
-  return prev_node ? make_mecab_node(prev_node) : SCM_FALSE;")
+   (result (make-mecab-node (-> (-> n node) prev))))
 
  (define-cproc mecab-node-next (n::<mecab-node>)
-"  const mecab_node_t *next_node = n->node->next;
-  return next_node ? make_mecab_node(next_node) : SCM_FALSE;")
+   (result (make-mecab-node (-> (-> n node) next))))
 
  (define-cproc mecab-node-enext (n::<mecab-node>)
-"  const mecab_node_t *enext_node = n->node->enext;
-  return enext_node ? make_mecab_node(enext_node) : SCM_FALSE;")
+   (result (make-mecab-node (-> (-> n node) enext))))
 
  (define-cproc mecab-node-bnext (n::<mecab-node>)
-"  const mecab_node_t *bnext_node = n->node->bnext;
-  return bnext_node ? make_mecab_node(bnext_node) : SCM_FALSE;")
+   (result (make-mecab-node (-> (-> n node) bnext))))
 
-;; NULL terminateされていません. 文字列として取り出すには
-;; strncpy(buf, node->feature, node->length) とする必要があります
  (define-cproc %mecab-node-surface (n::<mecab-node>)
-  "  char buf[n->node->length + 1];
-     memcpy(buf, n->node->surface, n->node->length);
-     buf[n->node->length] = 0;
-     return SCM_MAKE_STR_COPYING(buf);");
+   (result (Scm-MakeString (-> (-> n node) surface)
+                           (-> (-> n node) length) ;; size
+                           -1 ;; Gauche will count the 'length' of this substring
+                           SCM-STRING-COPYING)))
 
- (define-cproc %mecab-node-feature (n::<mecab-node>) ::<const-cstring>
-   (result (-> (-> n node) feature)))
+ (define-cproc %mecab-node-feature (n::<mecab-node>)
+   ::<const-cstring> (result (-> (-> n node) feature)))
 
- (define-cproc mecab-node-length (n::<mecab-node>) ::<uint>
-   (result (-> (-> n node) length)))
+ (define-cproc mecab-node-length (n::<mecab-node>)
+   ::<uint> (result (-> (-> n node) length)))
 
- (define-cproc mecab-node-rlength (n::<mecab-node>) ::<uint>
-   (result (-> (-> n node) rlength)))
+ (define-cproc mecab-node-rlength (n::<mecab-node>)
+   ::<uint> (result (-> (-> n node) rlength)))
 
- (define-cproc mecab-node-id (n::<mecab-node>) ::<uint>
-   (result (-> (-> n node) id)))
+ (define-cproc mecab-node-id (n::<mecab-node>)
+   ::<uint> (result (-> (-> n node) id)))
 
- (define-cproc mecab-node-rc-attr (n::<mecab-node>) ::<uint>
-   (result (-> (-> n node) rcAttr)))
+ (define-cproc mecab-node-rc-attr (n::<mecab-node>)
+   ::<uint> (result (-> (-> n node) rcAttr)))
 
- (define-cproc mecab-node-lc-attr (n::<mecab-node>) ::<uint>
-   (result (-> (-> n node) lcAttr)))
+ (define-cproc mecab-node-lc-attr (n::<mecab-node>)
+   ::<uint> (result (-> (-> n node) lcAttr)))
 
- (define-cproc mecab-node-posid (n::<mecab-node>) ::<uint>
-   (result (-> (-> n node) posid)))
+ (define-cproc mecab-node-posid (n::<mecab-node>)
+   ::<uint> (result (-> (-> n node) posid)))
 
- (define-cproc mecab-node-char-type (n::<mecab-node>) ::<uint>
-   (result (-> (-> n node) char-type)))
+ (define-cproc mecab-node-char-type (n::<mecab-node>)
+   ::<uint> (result (-> (-> n node) char-type)))
 
- (define-cproc %mecab-node-stat (n::<mecab-node>) ::<int>
-   (result (-> (-> n node) stat)))
+ (define-cproc %mecab-node-stat (n::<mecab-node>)
+   ::<int> (result (-> (-> n node) stat)))
 
- (define-cproc mecab-node-best? (n::<mecab-node>) ::<boolean>
-   (result (-> (-> n node) isbest)))
+ (define-cproc mecab-node-best? (n::<mecab-node>)
+   ::<boolean> (result (-> (-> n node) isbest)))
 
- (define-cproc mecab-node-alpha (n::<mecab-node>) ::<float>
-   (result (-> (-> n node) alpha)))
+ (define-cproc mecab-node-alpha (n::<mecab-node>)
+   ::<float> (result (-> (-> n node) alpha)))
 
- (define-cproc mecab-node-beta (n::<mecab-node>) ::<float>
-   (result (-> (-> n node) beta)))
+ (define-cproc mecab-node-beta (n::<mecab-node>)
+   ::<float> (result (-> (-> n node) beta)))
 
- (define-cproc mecab-node-prob (n::<mecab-node>) ::<float>
-   (result (-> (-> n node) prob)))
+ (define-cproc mecab-node-prob (n::<mecab-node>)
+   ::<float> (result (-> (-> n node) prob)))
 
- (define-cproc mecab-node-wcost (n::<mecab-node>) ::<int>
-   (result (-> (-> n node) wcost)))
+ (define-cproc mecab-node-wcost (n::<mecab-node>)
+   ::<int> (result (-> (-> n node) wcost)))
 
- (define-cproc mecab-node-cost (n::<mecab-node>) ::<int>
-   (result (-> (-> n node) cost)))
+ (define-cproc mecab-node-cost (n::<mecab-node>)
+   ::<int> (result (-> (-> n node) cost)))
 
 ;;
 ;; mecab_dictionary_info_t
 ;;
-;;   #define MECAB_USR_DIC   1
-;;   #define MECAB_SYS_DIC   0
-;;   #define MECAB_UNK_DIC   2
-;;
  (define-cproc mecab-dictionary-info-filename (dinfo::<mecab-dictionary-info>)
-   ::<const-cstring>
-   (result (-> (-> dinfo dic_info) filename)))
+   ::<const-cstring> (result (-> (-> dinfo dic_info) filename)))
 
  (define-cproc mecab-dictionary-info-charset (dinfo::<mecab-dictionary-info>)
-   ::<const-cstring>
-   (result (-> (-> dinfo dic_info) charset)))
+   ::<const-cstring> (result (-> (-> dinfo dic_info) charset)))
 
  (define-cproc mecab-dictionary-info-size (dinfo::<mecab-dictionary-info>)
    ::<uint> (result (-> (-> dinfo dic_info) size)))
@@ -514,40 +470,143 @@
 (define-macro (mecab-dictionary-info? obj) `(is-a? ,obj <mecab-dictionary-info>))
 
 (define-method write-object ((m <mecab>) out)
-  (format out "#<mecab>")); (mecab-version)))
+  (format out "#<mecab ~s>" (mecab-options m)))
 (define-method write-object ((m <mecab-node>) out)
   (format out "#<mecab-node>"))
 (define-method write-object ((m <mecab-dictionary-info>) out)
   (format out "#<mecab-dictionary-info>"))
 
-(define-reader-ctor '<mecab> mecab-new2)
+(define *mecab-options+*
+  '((r rcfile FILE)
+    (d dicdir DIR)
+    (u userdic FILE)
+    (l lattice-level INT)
+    (D dictionary-info)
+    (a all-morphs)
+    (O output-format-type TYPE)
+    (p partial)
+    (F node-format STR)
+    (U unk-format STR)
+    (B bos-format STR)
+    (E eos-format STR)
+    (x unk-feature STR)
+    (b input-buffer-size INT)
+    (P dump-config)
+    (M open-mutable-dictionary)
+    (C allocate-sentence)
+    (N nbest INT)
+    (t theta FLOAT)
+    (c cost-factor INT)
+    (o output FILE)
+    (v version)
+    (h help)))
 
-(define (mecab-tagger paramstr)
-  (let1 mecabobj (mecab-new2 paramstr)
+(define *mecab-options* (map cdr *mecab-options+*))
+
+(define (cast argtype obj)
+  (case argtype
+    [(STR DIR FILE) (x->string obj)]
+    [(INT FLOAT) obj]
+    [(TYPE) (string->symbol (x->string obj))]
+    [else obj]))
+
+(define (requires-arg? option)
+  (let1 opt (assoc option *mecab-options*)
+    (if opt (= 2 (length opt)) #f)))
+
+(define (argtype option)
+  (cadr (or (assoc option *mecab-options*) (list #f #f))))
+
+(define (long-option-name short-option-name)
+  (cadr (or (assoc short-option-name *mecab-options+*) (list #f #f))))
+
+(define (keyword-length keyword)
+  (string-length (keyword->string keyword)))
+
+(define (keyword->symbol keyword)
+  (string->symbol (keyword->string keyword)))
+
+(define (mecab-parse-options args)
+  ;; eg. ("-Ochasen" :l 1 "--theta" "0.75")
+  ;;     => (:output-format-type "chasen" :lattice-level 1 :theta "0.75")
+  (let1 args* (append-map
+               (lambda (arg)
+                 (cond [(string? arg)
+                        (if (string=? "" arg) '()
+                            (append-map
+                             (lambda (str)
+                               (let1 len (string-length str)
+                                 (if (<= 2 len)
+                                     (if (eq? #\- (string-ref str 0))
+                                         ;; --option, -X[arg]
+                                         (if (eq? #\- (string-ref str 1))
+                                             ;; --option
+                                             (list (string->symbol (substring str 2 len)))
+                                             ;; -X[arg]
+                                             (let1 option (long-option-name (string->symbol (substring str 1 2)))
+                                               (if (= len 2)
+                                                   ;; -X
+                                                   (list option)
+                                                   ;; -Xarg
+                                                   (list option (cast (argtype option) (substring str 2 len))))))
+                                         (list str))
+                                     (list str))))
+                             (string-split arg #[ =])))]
+                       [(keyword? arg)
+                        (if (= 1 (keyword-length arg))
+                            (list (long-option-name (keyword->symbol arg)))
+                            (list (keyword->symbol arg)))]
+                       [else
+                        (list arg)]))
+               (if (list? args) args (list args)))
+    ;; eg. (:output-format-type "chasen" :lattice-level 1 :theta "0.75")
+    ;;     => ((output-format-type chasen) (lattice-level 1) (theta 0.75))
+    (let loop ((rest args*) (options '()))
+      (if (null? rest)
+          (reverse! options)
+          (let1 option (car rest)
+            (if (symbol? option)
+                (if (requires-arg? option)
+                    (loop (cddr rest) (cons (list option (cast (argtype option) (cadr rest))) options))
+                    (loop (cdr rest) (cons (list option (if #f #f)) options)))
+                (loop (cdr rest) options)))))))
+
+(define (mecab . args) ;; inspired by leque's make-mecab
+  (let* ([options (mecab-parse-options args)]
+         [options-str (append-map (lambda (option+arg)
+                                    (let* ([option (car option+arg)]
+                                           [option-str (format "--~a" option)])
+                                      (if (requires-arg? option)
+                                          (list option-str (x->string (cadr option+arg)))
+                                          (list option-str) )))
+                                  options)])
+    (%mecab-new options-str options)))
+
+(define-reader-ctor 'mecab mecab)
+
+;; Tagger
+(define (mecab-tagger . args)
+  (let1 m (apply mecab args)
     (define (parse-to-string str . args)
       (let-optionals* args ((len #f))
         (if len
-            (mecab-sparse-tostr2 mecabobj str len)
-            (mecab-sparse-tostr mecabobj str) )))
-    
-    (define (parse-to-node str)
-      (mecab-sparse-tonode mecabobj str))
+            (mecab-sparse-tostr2 m str len)
+            (mecab-sparse-tostr m str) )))
 
-    ;; この機能を使う場合は, 起動時オプションとして -l 1 を指定する必要があります
-    (define (parse-nbest n str)
-      (mecab-nbest-sparse-tostr mecabobj n str))
+    (define (parse-to-node str) (mecab-sparse-tonode m str))
 
-    (define (parse-nbest-init str)
-      (mecab-nbest-init mecabobj str))
+    ;; requires "-l 1" in option
+    (define (parse-nbest n str) (mecab-nbest-sparse-tostr m n str))
 
-    (define (next)
-      (mecab-nbest-next-tostr mecabobj))
+    (define (parse-nbest-init str) (mecab-nbest-init m str))
 
-    (define (next-node)
-      (mecab-nbest-next-tonode mecabobj))
+    (define (next) (mecab-nbest-next-tostr m))
 
-    (define (format-node node)
-      (mecab-format-node mecabobj node))
+    (define (next-node) (mecab-nbest-next-tonode m))
+
+    (define (format-node node) (mecab-format-node m node))
+
+    (define (destroy) (mecab-destroy m))
 
     (lambda (m)
       (case m
@@ -558,37 +617,52 @@
         [(next) next]
         [(next-node) next-node]
         [(format-node) format-node]
+        [(destroy) destroy]
         ))))
 
-;;; class
-(define-class <mecab-tagger> () (mecab #f))
+(define-class <mecab-tagger> () (m #f))
+
 (define (mecab-make-tagger paramstr)
-  (make <mecab-tagger> :mecab (mecab-new2 paramstr)))
-(define (tagger-mecab tagger) (slot-ref tagger 'mecab))
+  (make <mecab-tagger> :mecab (mecab paramstr)))
+
+(define (tagger-mecab tagger) (slot-ref tagger 'm))
+
 (define-method parse ((tagger <mecab-tagger>) (str <string>))
   (mecab-sparse-tostr (tagger-mecab tagger) str))
+
 (define-method parse ((tagger <mecab-tagger>) (str <string>) (len <integer>))
   (mecab-sparse-tostr2 (tagger-mecab tagger) str len))
+
 (define-method parse-to-string ((tagger <mecab-tagger>) (str <string>))
   (mecab-sparse-tostr (tagger-mecab tagger) str))
+
 (define-method parse-to-string ((tagger <mecab-tagger>) (str <string>) (len <integer>))
   (mecab-sparse-tostr (tagger-mecab tagger) str len))
+
 (define-method parse-to-node ((tagger <mecab-tagger>) (str <string>))
   (mecab-sparse-tonode (tagger-mecab tagger) str))
+
 (define-method parse-to-node ((tagger <mecab-tagger>) (str <string>) (len <integer>))
   (mecab-sparse-tonode2 (tagger-mecab tagger) str len))
+
 (define-method parse-nbest ((tagger <mecab-tagger>) (n <integer>) (str <string>))
   (mecab-nbest-sparse-tostr (tagger-mecab tagger) str))
+
 (define-method parse-nbest ((tagger <mecab-tagger>) (n <integer>) (str <string>) (len <integer>))
   (mecab-nbest-sparse-tostr (tagger-mecab tagger) str len))
+
 (define-method parse-nbest-init ((tagger <mecab-tagger>) (str <string>))
   (mecab-nbest-init (tagger-mecab tagger) str))
+
 (define-method parse-nbest-init ((tagger <mecab-tagger>) (str <string>) (len <integer>))
   (mecab-nbest-init (tagger-mecab tagger) str len))
+
 (define-method next ((tagger <mecab-tagger>))
   (mecab-nbest-next-tostr (tagger-mecab tagger)))
+
 (define-method next-node ((tagger <mecab-tagger>))
   (mecab-nbest-next-tonode (tagger-mecab tagger)))
+
 (define-method format-node ((tagger <mecab-tagger>) (node <mecab-node>))
   (mecab-format-node (tagger-mecab tagger) node))
 

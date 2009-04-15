@@ -1,86 +1,17 @@
 ;; -*- coding:euc-jp -*-
 ;;
-;; test for mecab module
+;; dictionary-dependent tests for mecab module <vol.2>
 ;;
+;;  using mecab-0.98pre1 <default:EUC-JP>
+;;      + mecab-ipadic-2.7.0-20070801 <utf-8>
+;;
+;;  written by naoya_t
 
 (use gauche.test)
 
-(test-start "mecab")
+(test-start "mecab: dictionary-dependent tests <vol.2>: ipadic")
 (use text.mecab)
 (test-module 'text.mecab)
-
-(test-section "naoya_t")
-;;
-;; primitive things
-;;
-(test-section "[gauche] write-object")
-(let1 mecab (mecab-new2 "")
-  (test* "display" "#<mecab>" (with-output-to-string (lambda () (display mecab)))))
-
-(test-section "[gauche] reader-ctor")
-(let1 mecab #,(<mecab> "") ;; with reader-ctor
-  (test* "#,(<mecab> \"\")" #t (mecab? mecab))
-  (mecab-destroy mecab))
-(let1 mecab #,(<mecab> "-Ochasen") ;; with reader-ctor
-  (test* "#,(<mecab> \"-Ochasen\")" #t (mecab? mecab))
-  (mecab-destroy mecab))
-
-(let* ([m (mecab-new2 "")]
-       [node (mecab-sparse-tonode m "")]
-       [dinfo (mecab-dictionary-info m)])
-  (test-section "[gauche] mecab?")
-  (test* "<mecab>" #t (mecab? m))
-  (test* "<mecab-node>" #f (mecab? node))
-  (test* "<mecab-dictionary-info>" #f (mecab? dinfo))
-  (test* "#f" #f (mecab? #f))
-
-  (test-section "[gauche] mecab-node?")
-  (test* "<mecab>" #f (mecab-node? m))
-  (test* "<mecab-node>" #t (mecab-node? node))
-  (test* "<mecab-dictionary-info>" #f (mecab-node? dinfo))
-  (test* "#f" #f (mecab-node? #f))
-
-  (test-section "[gauche] mecab-dictionary-info?")
-  (test* "<mecab>" #f (mecab-dictionary-info? m))
-  (test* "<mecab-node>" #f (mecab-dictionary-info? node))
-  (test* "<mecab-dictionary-info>" #t (mecab-dictionary-info? dinfo))
-  (test* "#f" #f (mecab-dictionary-info? #f))
-
-  (mecab-destroy m))
-
-(test-section "mecab-new")
-(let1 m (mecab-new '())
-  (test* "is-a? <mecab>" #t (is-a? m <mecab>))
-  (test* "mecab?" #t (mecab? m))
-
-  (test-section "mecab-destroy")
-  (test* "mecab-destroyed?" #f (mecab-destroyed? m))
-  (mecab-destroy m)
-  (test* "mecab-destroyed?" #t (mecab-destroyed? m))
-  )
-
-(test-section "mecab-new2")
-(let1 m (mecab-new2 "")
-  (test* "is-a? <mecab>" #t (is-a? m <mecab>))
-  (test* "mecab?" #t (mecab? m))
-  (mecab-destroy m))
-
-(test-section "mecab-version")
-(test* "mecab-version" "0.98pre1" (mecab-version))
-
-(test-section "mecab-strerror")
-
-(mecab-new2 "")
-(test* "at mecab-new2 (ok)" "" (mecab-strerror #f))
-
-(mecab-new2 "-d //")
-;; "tagger.cpp(149) [load_dictionary_resource(param)] param.cpp(71) [ifs] no such file or directory:  //dicrc"
-(test* "at mecab-new (err)" #f (string=? "" (mecab-strerror #f)))
-
-(let1 m (mecab-new2 "")
-  (mecab-sparse-tostr m "空が青い。")
-  (test* "noerr" "" (mecab-strerror m))
-  (mecab-destroy m))
 
 (let1 m (mecab-new2 "")
   (test-section "mecab-sparse-tostr")
@@ -311,37 +242,6 @@
 ;    (test* "has next?" #t (mecab-dictionary-info? next-dinfo)))
   (mecab-destroy m))
 
-(let1 m (mecab-new2 "")
-  (test-section "mecab-get[set]-partial: 部分解析の現在のモード(0/1)")
-  (test* "default partial mode" 0 (mecab-get-partial m))
-  (mecab-set-partial m 1)
-  (test* "set to 1" 1 (mecab-get-partial m))
-  (mecab-set-partial m 0)
-  (test* "set to 0" 0 (mecab-get-partial m))
-
-  (test-section "mecab-get[set]-theta: ソフト分かち書きの温度パラメータ")
-  (test* "default theta" 0.75 (mecab-get-theta m))
-  (mecab-set-theta m 1.0)
-  (test* "set to 1.0" 1.0 (mecab-get-theta m))
-  (mecab-set-theta m 0.5)
-  (test* "set to 0.5" 0.5 (mecab-get-theta m))
-
-  (test-section "mecab-get[set]-lattice-level: ラティスレベル (0/1/2)")
-  (test* "default lattice level" 0 (mecab-get-lattice-level m))
-  (mecab-set-lattice-level m 1)
-  (test* "set to 1" 1 (mecab-get-lattice-level m))
-  (mecab-set-lattice-level m 2)
-  (test* "set to 2" 2 (mecab-get-lattice-level m))
-  (mecab-set-lattice-level m 0)
-  (test* "set to 0" 0 (mecab-get-lattice-level m))
-
-  (test-section "mecab-get[set]-all-morphs: 出力モード(0/1)")
-  (test* "default all-morphs" 0 (mecab-get-all-morphs m))
-  (mecab-set-all-morphs m 1)
-  (test* "set to 1" 1 (mecab-get-all-morphs m))
-  (mecab-set-all-morphs m 0)
-  (test* "set to 0" 0 (mecab-get-all-morphs m))
-  )
 
 ;;;;;;;;;;
 ;;
@@ -358,7 +258,7 @@
 ;;; tagger (message passing)
 ;;;
 (test-section "tagger")
-(let1 tagger (mecab-tagger "")
+(let1 tagger (mecab-tagger "-l 1")
   (test* "tagger'parse-to-string"
          (string-join '("今日\t名詞,副詞可能,*,*,*,*,今日,キョウ,キョー"
                         "も\t助詞,係助詞,*,*,*,*,も,モ,モ"
@@ -421,6 +321,8 @@
 
     (set! node (mecab-node-next node))
     (test* "mecab-node?" #f (mecab-node? node))
+
+    (tagger'destroy)
     ))
 
 (test-end)
