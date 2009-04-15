@@ -1,0 +1,12 @@
+2009-03-23  naoya_t  <naoya.t@aqua.plala.or.jp>
+
+	* Merged naoya_t's MeCab binding.  Supports almost all of MeCab APIs and Tagger class.
+
+2009-03-01  Shiro Kawai  <shiro@acm.org>
+
+	* Picked up development to make use of it.   Adapted to the newer
+	  way of stub writing.   NOTE: you need Gauche svn trunk to compile
+	  this.
+
+
+
